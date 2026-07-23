@@ -1,0 +1,41 @@
+workflows:
+  ios-webview-app:
+    name: iOS WebView App
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+      groups:
+        - ios_signing   # create this group in Codemagic UI with your certs/profile
+      vars:
+        BUNDLE_ID: "com.example.webviewapp"   # change to your own reverse-DNS bundle id
+        XCODE_PROJECT: "WebViewApp.xcodeproj"
+        XCODE_SCHEME: "WebViewApp"
+    scripts:
+      - name: Set up code signing
+        script: |
+          # Requires App Store Connect API key + automatic signing configured
+          # in Codemagic > Team settings > Code signing identities,
+          # or manually via keychain-initialize / app-store-connect fetch-signing-files.
+          xcode-project use-profiles
+      - name: Build ipa for distribution
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      email:
+        recipients:
+          - your-email@example.com
+        notify:
+          success: true
+          failure: true
+      # Uncomment to auto-submit to TestFlight once signing is configured:
+      # app_store_connect:
+      #   api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+      #   key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+      #   issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+      #   submit_to_testflight: true
