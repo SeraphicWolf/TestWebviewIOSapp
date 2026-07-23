@@ -1,24 +1,72 @@
 workflows:
-  ios-webview-app:
-    name: iOS WebView App
+  # Builds an UNSIGNED .ipa. No Apple Developer Program membership required.
+  # You sign + install it yourself afterwards using Sideloadly or AltStore
+  # with your free Apple ID (re-sideload every 7 days — that's an Apple
+  # free-tier limit, not something this workflow can change).
+  ios-webview-app-unsigned:
+    name: iOS WebView App (unsigned, for sideloading)
     max_build_duration: 60
     instance_type: mac_mini_m2
     environment:
       xcode: latest
-      groups:
-        - ios_signing   # create this group in Codemagic UI with your certs/profile
       vars:
-        BUNDLE_ID: "com.example.webviewapp"   # change to your own reverse-DNS bundle id
         XCODE_PROJECT: "WebViewApp.xcodeproj"
         XCODE_SCHEME: "WebViewApp"
     scripts:
-      - name: Set up code signing
+      - name: Build unsigned .app (Release, no code signing)
         script: |
-          # Requires App Store Connect API key + automatic signing configured
-          # in Codemagic > Team settings > Code signing identities,
-          # or manually via keychain-initialize / app-store-connect fetch-signing-files.
-          xcode-project use-profiles
-      - name: Build ipa for distribution
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+      - name: Package unsigned .app into a sideload-ready .ipa
+        script: |
+          mkdir -p build/Payload
+          cp -r "build/Build/Products/Release-iphoneos/WebViewApp.app" build/Payload/
+          cd build && zip -r WebViewApp-unsigned.ipa Payload
+    artifacts:
+      - build/WebViewApp-unsigned.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      email:
+        recipients:
+          - your-email@example.com
+        notify:
+          success: true
+          failure: true
+
+  # Only usable once you have a paid Apple Developer Program membership
+  # ($99/yr) and have set up the App Store Connect integration in Codemagic
+  # (Team settings > Integrations > App Store Connect).
+  ios-webview-app-signed:
+    name: iOS WebView App (signed, requires paid Apple Developer account)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+      integrations:
+        app_store_connect: codemagic   # replace with your integration's reference name
+      vars:
+        BUNDLE_ID: "com.example.webviewapp"
+        XCODE_PROJECT: "WebViewApp.xcodeproj"
+        XCODE_SCHEME: "WebViewApp"
+    scripts:
+      - name: Fetch signing files
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+      - name: Use fetched signing files
+        script: keychain add-certificates
+      - name: Set up code signing settings on Xcode project
+        script: xcode-project use-profiles
+      - name: Build ipa
         script: |
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
@@ -29,13 +77,11 @@ workflows:
     publishing:
       email:
         recipients:
-          - vnull@proton.me
+          - your-email@example.com
         notify:
           success: true
           failure: true
-      # Uncomment to auto-submit to TestFlight once signing is configured:
+      # Uncomment once signing is confirmed working, to auto-submit to TestFlight:
       # app_store_connect:
-      #   api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-      #   key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-      #   issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+      #   auth: integration
       #   submit_to_testflight: true
